@@ -9,16 +9,17 @@ const IN = process.env.MAKEFUN_INPUT_DIR ?? '/input';
 const OUT = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 const enc = new TextEncoder();
 
-// [immediate bytes, pops, pushes] for each opcode; null for an unknown opcode.
-function info(op: number): [number, number, number] | null {
-  if (op < 8) return [[0, 0, 0], [1, 0, 1], [4, 0, 1], [0, 1, 0], [0, 1, 2], [0, 2, 2], [0, 2, 3], [0, 3, 3]][op];
-  if (op >= 16 && op <= 34 && op !== 31) return op === 23 || op === 27 ? [0, 1, 1] : [0, 2, 1];
-  if (op >= 48 && op <= 51) return [[2, 0, 0], [2, 1, 0], [2, 1, 0], [2, 0, 0]][op - 48];
-  if (op === 52) return [0, 0, 0];
-  if (op === 64) return [0, 1, 1];
-  if (op === 65) return [0, 2, 0];
-  if (op >= 80 && op <= 83) return [[0, 1, 0], [0, 1, 0], [0, 0, 1], [0, 1, 0]][op - 80];
-  return null;
+// Packed [immediate bytes, pops, pushes] per opcode: imm<<4 | pops<<2 | pushes; -1 unknown.
+// Packed so the hot loop allocates nothing per instruction.
+function info(op: number): number {
+  if (op < 8) return [0, 17, 65, 4, 6, 10, 11, 15][op];
+  if (op >= 16 && op <= 34 && op !== 31) return op === 23 || op === 27 ? 5 : 9;
+  if (op >= 48 && op <= 51) return [32, 36, 36, 32][op - 48];
+  if (op === 52) return 0;
+  if (op === 64) return 5;
+  if (op === 65) return 8;
+  if (op >= 80 && op <= 83) return [4, 4, 1, 4][op - 80];
+  return -1;
 }
 
 function run(prog: Uint8Array, input: Uint8Array): [Uint8Array, number] {
@@ -36,8 +37,8 @@ function run(prog: Uint8Array, input: Uint8Array): [Uint8Array, number] {
     if (pc < 0 || pc >= n) return end(9);
     const op = prog[pc];
     const inf = info(op);
-    if (!inf) return end(5);
-    const imm = inf[0], pops = inf[1], pushes = inf[2];
+    if (inf < 0) return end(5);
+    const imm = inf >> 4, pops = (inf >> 2) & 3, pushes = inf & 3;
     if (pc + imm >= n) return end(9);
     steps++;
     const nx = pc + 1 + imm;
